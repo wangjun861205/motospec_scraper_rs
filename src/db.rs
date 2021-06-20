@@ -19,7 +19,7 @@ impl MongoStore {
 }
 
 impl Store for MongoStore {
-    fn insert_spec(&mut self, spec: &Spec) -> Result<()> {
+    fn insert_spec(&self, spec: &Spec) -> Result<()> {
         let specs = spec.get_specs();
         let doc = Document::from_iter(specs.into_iter().map(|(key, val)| (key.to_owned(), to_bson(val).unwrap())));
         self.0.insert_one(doc, None).map(|_| ()).map_err(|e| e.into())
@@ -44,7 +44,7 @@ pub static MODEL: &str = "Model";
 pub static SPEC: &str = "Spec";
 
 impl Logger for MongoLog {
-    fn insert_log(&mut self, log: Log<LogLevel, Box<dyn Error + Send + Sync>>) -> Result<()> {
+    fn insert_log(&self, log: Log<LogLevel, Box<dyn Error + Send + Sync>>) -> Result<()> {
         match log {
             Log::Log(level) => match level {
                 LogLevel::Brand(brand) => {
@@ -168,7 +168,7 @@ impl Logger for MongoLog {
         Ok(l)
     }
 
-    fn update_state(&mut self, id: &str, state: &str) -> Result<()> {
+    fn update_state(&self, id: &str, state: &str) -> Result<()> {
         self.0.update_one(
             doc! {
                 "_id": id,
@@ -181,7 +181,7 @@ impl Logger for MongoLog {
         Ok(())
     }
 
-    fn increment_retry_count(&mut self, id: &str) -> Result<()> {
+    fn increment_retry_count(&self, id: &str) -> Result<()> {
         self.0.update_one(
             doc! {
                 "_id": id,
@@ -203,7 +203,7 @@ mod test {
         use crate::db::MongoStore;
         use crate::result::Spec;
 
-        let mut coll = MongoStore::new("motospec", "spec").unwrap();
+        let coll = MongoStore::new("motospec", "spec").unwrap();
         let mut spec = Spec::new("test".to_owned(), "test".to_owned(), "test".to_owned());
         spec.add_spec("a".to_owned(), "a".to_owned());
         coll.insert_spec(&spec).unwrap();

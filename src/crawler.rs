@@ -6,7 +6,7 @@ use futures::future::join_all;
 use futures::{future::BoxFuture, FutureExt};
 use scraper::{ElementRef, Html, Selector};
 use std::error::Error;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use url::Url;
 
 #[async_trait]
@@ -15,16 +15,16 @@ pub trait HttpGetter: Send + Sync {
 }
 
 pub trait Store: Send + Sync {
-    fn insert_spec(&mut self, spec: &Spec) -> Result<()>;
+    fn insert_spec(&self, spec: &Spec) -> Result<()>;
 }
 
 pub trait Logger: Send + Sync {
-    fn insert_log(&mut self, log: Log<LogLevel, Box<dyn Error + Send + Sync>>) -> Result<()>;
+    fn insert_log(&self, log: Log<LogLevel, Box<dyn Error + Send + Sync>>) -> Result<()>;
     fn get_brand_errors(&self) -> Result<Vec<(Brand, String)>>;
     fn get_model_errors(&self) -> Result<Vec<(Model, String)>>;
     fn get_spec_errors(&self) -> Result<Vec<(Spec, String)>>;
-    fn update_state(&mut self, id: &str, state: &str) -> Result<()>;
-    fn increment_retry_count(&mut self, id: &str) -> Result<()>;
+    fn update_state(&self, id: &str, state: &str) -> Result<()>;
+    fn increment_retry_count(&self, id: &str) -> Result<()>;
 }
 
 fn extract_brands(html: &str) -> Vec<Brand> {
@@ -183,16 +183,17 @@ fn extract_spec(html: &str, brand: &str, model: &str, year: &str) -> Spec {
         })
 }
 
-pub async fn scrape_brands(getter: Arc<dyn HttpGetter>, html: &str, store: Arc<Mutex<dyn Store>>, logger: Arc<Mutex<dyn Logger>>) {
+pub async fn scrape_brands(getter: Arc<dyn HttpGetter>, html: &str, store: Arc<dyn Store>, logger: Arc<dyn Logger>) {
     let brands = extract_brands(html);
-    let mut handles = Vec::new();
+    // let mut handles = Vec::new();
     for brand in brands {
-        handles.push(tokio::spawn(scrape_models(getter.clone(), brand, store.clone(), logger.clone())));
+        // handles.push(tokio::spawn(scrape_models(getter.clone(), brand, store.clone(), logger.clone())));
+        scrape_models(getter.clone(), brand, store.clone(), logger.clone()).await;
     }
-    join_all(handles).await;
+    // join_all(handles).await;
 }
 
-fn scrape_models<'a>(getter: Arc<dyn HttpGetter>, brand: Brand, store: Arc<Mutex<dyn Store>>, logger: Arc<Mutex<dyn Logger>>) -> BoxFuture<'a, ()> {
+fn scrape_models<'a>(getter: Arc<dyn HttpGetter>, brand: Brand, store: Arc<dyn Store>, logger: Arc<dyn Logger>) -> BoxFuture<'a, ()> {
     async move {
         match getter.get(brand.get_url()).await {
             Ok(html) => {
@@ -205,15 +206,15 @@ fn scrape_models<'a>(getter: Arc<dyn HttpGetter>, brand: Brand, store: Arc<Mutex
                     handles.push(tokio::spawn(scrape_models(getter.clone(), next, store.clone(), logger.clone())));
                 }
                 join_all(handles).await;
-                logger.lock().unwrap().insert_log(Log::Log(LogLevel::Brand(brand))).unwrap();
+                logger.insert_log(Log::Log(LogLevel::Brand(brand))).unwrap();
             }
-            Err(e) => logger.lock().unwrap().insert_log(Log::Err(LogLevel::Brand(brand), e)).unwrap(),
+            Err(e) => logger.insert_log(Log::Err(LogLevel::Brand(brand), e)).unwrap(),
         }
     }
     .boxed()
 }
 
-pub fn retry_scrape_models<'a>(getter: Arc<dyn HttpGetter>, brand: Brand, log_id: String, store: Arc<Mutex<dyn Store>>, logger: Arc<Mutex<dyn Logger>>) -> BoxFuture<'a, ()> {
+pub fn retry_scrape_models<'a>(getter: Arc<dyn HttpGetter>, brand: Brand, log_id: String, store: Arc<dyn Store>, logger: Arc<dyn Logger>) -> BoxFuture<'a, ()> {
     async move {
         match getter.get(brand.get_url()).await {
             Ok(html) => {
@@ -226,43 +227,43 @@ pub fn retry_scrape_models<'a>(getter: Arc<dyn HttpGetter>, brand: Brand, log_id
                     handles.push(tokio::spawn(scrape_models(getter.clone(), next, store.clone(), logger.clone())));
                 }
                 join_all(handles).await;
-                logger.lock().unwrap().update_state(&log_id, COMPLETED).unwrap();
+                logger.update_state(&log_id, COMPLETED).unwrap();
             }
-            Err(_) => logger.lock().unwrap().increment_retry_count(&log_id).unwrap(),
+            Err(_) => logger.increment_retry_count(&log_id).unwrap(),
         }
     }
     .boxed()
 }
 
-async fn scrape_specs(getter: Arc<dyn HttpGetter>, model: Model, store: Arc<Mutex<dyn Store>>, logger: Arc<Mutex<dyn Logger>>) {
+async fn scrape_specs(getter: Arc<dyn HttpGetter>, model: Model, store: Arc<dyn Store>, logger: Arc<dyn Logger>) {
     match getter.get(model.get_url()).await {
         Ok(html) => {
             let mut spec = extract_spec(&html, model.get_brand(), model.get_name(), model.get_year());
             spec.add_spec("Brand".to_owned(), model.get_brand().to_owned());
             spec.add_spec("Model".to_owned(), model.get_name().to_owned());
-            if let Err(e) = store.lock().unwrap().insert_spec(&spec) {
-                logger.lock().unwrap().insert_log(Log::Err(LogLevel::Spec(spec), e)).unwrap();
+            if let Err(e) = store.insert_spec(&spec) {
+                logger.insert_log(Log::Err(LogLevel::Spec(spec), e)).unwrap();
             } else {
-                logger.lock().unwrap().insert_log(Log::Log(LogLevel::Spec(spec))).unwrap();
+                logger.insert_log(Log::Log(LogLevel::Spec(spec))).unwrap();
             }
         }
-        Err(e) => logger.lock().unwrap().insert_log(Log::Err(LogLevel::Model(model), e)).unwrap(),
+        Err(e) => logger.insert_log(Log::Err(LogLevel::Model(model), e)).unwrap(),
     }
 }
 
-pub async fn retry_scrape_specs(getter: Arc<dyn HttpGetter>, model: Model, log_id: String, store: Arc<Mutex<dyn Store>>, logger: Arc<Mutex<dyn Logger>>) {
+pub async fn retry_scrape_specs(getter: Arc<dyn HttpGetter>, model: Model, log_id: String, store: Arc<dyn Store>, logger: Arc<dyn Logger>) {
     match getter.get(model.get_url()).await {
         Ok(html) => {
             let mut spec = extract_spec(&html, model.get_brand(), model.get_name(), model.get_year());
             spec.add_spec("Brand".to_owned(), model.get_brand().to_owned());
             spec.add_spec("Model".to_owned(), model.get_name().to_owned());
-            if let Err(_) = store.lock().unwrap().insert_spec(&spec) {
-                logger.lock().unwrap().increment_retry_count(&log_id).unwrap();
+            if let Err(_) = store.insert_spec(&spec) {
+                logger.increment_retry_count(&log_id).unwrap();
             } else {
-                logger.lock().unwrap().update_state(&log_id, COMPLETED).unwrap();
+                logger.update_state(&log_id, COMPLETED).unwrap();
             }
         }
-        Err(_) => logger.lock().unwrap().increment_retry_count(&log_id).unwrap(),
+        Err(_) => logger.increment_retry_count(&log_id).unwrap(),
     }
 }
 
@@ -274,14 +275,14 @@ mod test {
     use super::{extract_brands, extract_next_page, extract_spec};
     use crate::db::{MongoLog, MongoStore};
     use crate::http::{self, HttpClient};
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
 
     #[test]
     fn test_scrape() {
         let rt = Runtime::new().unwrap();
         let html = rt.block_on(http::get(http::BASE_URL)).unwrap();
-        let store = Arc::new(Mutex::new(MongoStore::new("motospec", "spec").unwrap()));
-        let logger = Arc::new(Mutex::new(MongoLog::new("motospec", "log").unwrap()));
+        let store = Arc::new(MongoStore::new("motospec", "spec").unwrap());
+        let logger = Arc::new(MongoLog::new("motospec", "log").unwrap());
         let client = Arc::new(HttpClient::new(32));
         rt.block_on(scrape_brands(client, &html, store, logger));
     }
