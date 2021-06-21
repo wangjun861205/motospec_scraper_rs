@@ -10,8 +10,8 @@ use crate::result::Result;
 pub struct MongoStore(Collection<Document>);
 
 impl MongoStore {
-    pub fn new(database: &str, collection: &str) -> Result<Self> {
-        let client = Client::with_uri_str("mongodb://wangjun:Wt20110523@127.0.0.1:27017/?compressors=disabled")?;
+    pub fn new(uri: &str, database: &str, collection: &str) -> Result<Self> {
+        let client = Client::with_uri_str(uri)?;
         let db = client.database(database);
         let col: Collection<Document> = db.collection(collection);
         Ok(Self(col))
@@ -29,8 +29,8 @@ impl Store for MongoStore {
 pub struct MongoLog(Collection<Document>);
 
 impl MongoLog {
-    pub fn new(database: &str, collection: &str) -> Result<Self> {
-        let client = Client::with_uri_str("mongodb://wangjun:Wt20110523@127.0.0.1:27017/?compressors=disabled")?;
+    pub fn new(uri: &str, database: &str, collection: &str) -> Result<Self> {
+        let client = Client::with_uri_str(uri)?;
         let db = client.database(database);
         let col: Collection<Document> = db.collection(collection);
         Ok(Self(col))
@@ -203,7 +203,7 @@ mod test {
         use crate::db::MongoStore;
         use crate::result::Spec;
 
-        let coll = MongoStore::new("motospec", "spec").unwrap();
+        let coll = MongoStore::new("<enter your mongo uri>", "<enter your mongo database>", "<enter your mongo collection>").unwrap();
         let mut spec = Spec::new("test".to_owned(), "test".to_owned(), "test".to_owned());
         spec.add_spec("a".to_owned(), "a".to_owned());
         coll.insert_spec(&spec).unwrap();
@@ -213,7 +213,7 @@ mod test {
     fn test_logger() {
         use super::MongoLog;
         use crate::crawler::Logger;
-        let logger = MongoLog::new("motospec", "log").unwrap();
+        let logger = MongoLog::new("<enter your mongo uri>", "<enter your mongo database>", "<enter your mongo collection>").unwrap();
         let models = logger.get_model_errors().unwrap();
         for model in models {
             println!("{:?}", model.0);

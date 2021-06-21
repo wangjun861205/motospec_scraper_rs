@@ -6,6 +6,7 @@ use reqwest::{
 };
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::Semaphore;
 
 static DEFAULT_HEADERS: &'static [(&'static str, &'static str)] = &[
@@ -46,25 +47,25 @@ pub struct HttpClient {
 }
 
 impl HttpClient {
-    pub fn new(num_conns: usize) -> Self {
-        Self {
-            client: Client::new(),
+    pub fn new(num_conns: usize) -> Result<Self> {
+        let client = Client::builder().timeout(Duration::from_secs(10)).build()?;
+        Ok(Self {
+            client: client,
             semaphore: Arc::new(Semaphore::new(num_conns)),
-        }
+        })
     }
 }
 
 #[async_trait]
 impl HttpGetter for HttpClient {
     async fn get(&self, url: &str) -> Result<String> {
-        let sem = self.semaphore.acquire().await?;
+        let _sem = self.semaphore.acquire().await?;
         let req = self
             .client
             .request(Method::GET, url)
             .headers(DEFAULT_HEADERS.iter().map(|(k, v)| (HeaderName::from_str(k).unwrap(), HeaderValue::from_str(v).unwrap())).collect())
             .build()?;
         let res = self.client.execute(req).await?;
-        drop(sem);
         res.text().await.map_err(|e| e.into())
     }
 }

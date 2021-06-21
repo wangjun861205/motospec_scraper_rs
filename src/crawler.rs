@@ -174,7 +174,7 @@ fn extract_spec(html: &str, brand: &str, model: &str, year: &str) -> Spec {
                 ss.push_str(vv);
                 ss
             });
-            title = title.trim().to_owned();
+            title = title.trim().to_owned().replace(".", "");
             value = value.trim().to_owned();
             if title != "" && value != "" {
                 s.add_spec(title, value);
@@ -185,12 +185,16 @@ fn extract_spec(html: &str, brand: &str, model: &str, year: &str) -> Spec {
 
 pub async fn scrape_brands(getter: Arc<dyn HttpGetter>, html: &str, store: Arc<dyn Store>, logger: Arc<dyn Logger>) {
     let brands = extract_brands(html);
-    // let mut handles = Vec::new();
+    let mut handles = Vec::new();
     for brand in brands {
-        // handles.push(tokio::spawn(scrape_models(getter.clone(), brand, store.clone(), logger.clone())));
-        scrape_models(getter.clone(), brand, store.clone(), logger.clone()).await;
+        handles.push(tokio::spawn(scrape_models(getter.clone(), brand, store.clone(), logger.clone())));
     }
-    // join_all(handles).await;
+    join_all(handles).await;
+    // for handle in handles {
+    //     if let Err(e) = handle.await {
+    //         println!("{:?}", e);
+    //     }
+    // }
 }
 
 fn scrape_models<'a>(getter: Arc<dyn HttpGetter>, brand: Brand, store: Arc<dyn Store>, logger: Arc<dyn Logger>) -> BoxFuture<'a, ()> {
@@ -206,6 +210,11 @@ fn scrape_models<'a>(getter: Arc<dyn HttpGetter>, brand: Brand, store: Arc<dyn S
                     handles.push(tokio::spawn(scrape_models(getter.clone(), next, store.clone(), logger.clone())));
                 }
                 join_all(handles).await;
+                // for handle in handles {
+                //     if let Err(e) = handle.await {
+                //         println!("{:?}", e);
+                //     }
+                // }
                 logger.insert_log(Log::Log(LogLevel::Brand(brand))).unwrap();
             }
             Err(e) => logger.insert_log(Log::Err(LogLevel::Brand(brand), e)).unwrap(),
@@ -227,6 +236,11 @@ pub fn retry_scrape_models<'a>(getter: Arc<dyn HttpGetter>, brand: Brand, log_id
                     handles.push(tokio::spawn(scrape_models(getter.clone(), next, store.clone(), logger.clone())));
                 }
                 join_all(handles).await;
+                // for handle in handles {
+                //     if let Err(e) = handle.await {
+                //         println!("{:?}", e);
+                //     }
+                // }
                 logger.update_state(&log_id, COMPLETED).unwrap();
             }
             Err(_) => logger.increment_retry_count(&log_id).unwrap(),
@@ -281,9 +295,9 @@ mod test {
     fn test_scrape() {
         let rt = Runtime::new().unwrap();
         let html = rt.block_on(http::get(http::BASE_URL)).unwrap();
-        let store = Arc::new(MongoStore::new("motospec", "spec").unwrap());
-        let logger = Arc::new(MongoLog::new("motospec", "log").unwrap());
-        let client = Arc::new(HttpClient::new(32));
+        let store = Arc::new(MongoStore::new("mongodb://127.0.0.1", "motospec", "spec").unwrap());
+        let logger = Arc::new(MongoLog::new("mongodb://127.0.0.1", "motospec", "log").unwrap());
+        let client = Arc::new(HttpClient::new(32).unwrap());
         rt.block_on(scrape_brands(client, &html, store, logger));
     }
 
